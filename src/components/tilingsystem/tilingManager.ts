@@ -54,6 +54,9 @@ class SnapAssistingInfo {
     }
 }
 
+// Clutter button number of the mouse side button (BTN_SIDE, "mouse 4").
+const SIDE_BUTTON_NUMBER = 8;
+
 export class TilingManager {
     private readonly _monitor: Monitor;
 
@@ -69,6 +72,9 @@ export class TilingManager {
     private _isGrabbingWindow: boolean;
     private _rmbFilterId: number = 0;
     private _rmbFilterInstalled: boolean = false;
+    // Held state of the side button (mouse 4 / BTN_SIDE). Mutter exposes no
+    // modifier-mask bit for buttons > 3, so it is tracked from the event filter.
+    private _sideButtonHeld: boolean = false;
     private _movingWindowTimerDuration: number = 15;
     private _lastCursorPos: { x: number; y: number } | null = null;
     private _grabStartPosition: { x: number; y: number } | null = null;
@@ -472,6 +478,7 @@ export class TilingManager {
         this._signals.disconnect();
         this._isGrabbingWindow = false;
         this._removeRmbFilterIfInstalled();
+        this._sideButtonHeld = false;
         this._snapAssistingInfo.update(undefined);
         this._edgeTilingManager.abortEdgeTiling();
         this._workspaceTilingLayout.forEach((tl) => tl.destroy());
@@ -558,6 +565,7 @@ export class TilingManager {
         }
 
         this._isGrabbingWindow = true;
+        this._sideButtonHeld = false;
         this._installRmbFilterIfNeeded();
         this._movingWindowTimerId = GLib.timeout_add(
             GLib.PRIORITY_DEFAULT_IDLE,
@@ -568,11 +576,13 @@ export class TilingManager {
         this._onMovingWindow(window, grabOp);
     }
 
-    private _anyActivationKeyIsRmb(): boolean {
+    private _anyActivationKeyIsMouseButton(): boolean {
+        const isMouseButton = (k: ActivationKey) =>
+            k === ActivationKey.RIGHT_BUTTON || k === ActivationKey.SIDE_BUTTON;
         return (
-            Settings.TILING_SYSTEM_ACTIVATION_KEY === ActivationKey.RIGHT_BUTTON ||
-            Settings.TILING_SYSTEM_DEACTIVATION_KEY === ActivationKey.RIGHT_BUTTON ||
-            Settings.SPAN_MULTIPLE_TILES_ACTIVATION_KEY === ActivationKey.RIGHT_BUTTON
+            isMouseButton(Settings.TILING_SYSTEM_ACTIVATION_KEY) ||
+            isMouseButton(Settings.TILING_SYSTEM_DEACTIVATION_KEY) ||
+            isMouseButton(Settings.SPAN_MULTIPLE_TILES_ACTIVATION_KEY)
         );
     }
 
@@ -590,12 +600,20 @@ export class TilingManager {
         if (event.get_button() === Clutter.BUTTON_SECONDARY) {
             return Clutter.EVENT_STOP;
         }
+        // Side button (mouse 4 / BTN_SIDE). Mutter's native backend numbers it 8
+        // (X11 convention) and gives it no modifier-mask bit, so remember its
+        // held state here and swallow it so the grab (and the dragged window's
+        // "Back" action) never see it.
+        if (event.get_button() === SIDE_BUTTON_NUMBER) {
+            this._sideButtonHeld = t === Clutter.EventType.BUTTON_PRESS;
+            return Clutter.EVENT_STOP;
+        }
         return Clutter.EVENT_PROPAGATE;
     }
 
     private _installRmbFilterIfNeeded(): void {
         if (this._rmbFilterInstalled) return;
-        if (!this._anyActivationKeyIsRmb()) return;
+        if (!this._anyActivationKeyIsMouseButton()) return;
         // `Clutter.event_add_filter` / `event_remove_filter` are not always
         // present in @girs/clutter type stubs. Cast to `any` to access them
         // and runtime-check for availability below.
@@ -649,6 +667,7 @@ export class TilingManager {
         key: ActivationKey,
     ): boolean {
         if (key === ActivationKey.NONE) return true;
+        if (key === ActivationKey.SIDE_BUTTON) return this._sideButtonHeld;
 
         let mask = Clutter.ModifierType.CONTROL_MASK;
         switch (key) {

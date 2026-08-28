@@ -1295,11 +1295,18 @@ export default class TilingShellExtensionPreferences extends ExtensionPreference
             ActivationKey.ALT,
             ActivationKey.SUPER,
             ActivationKey.RIGHT_BUTTON,
+            ActivationKey.SIDE_BUTTON,
         ];
-        const labelFor = (k: ActivationKey): string =>
-            k === ActivationKey.RIGHT_BUTTON
-                ? _('Right Mouse Button')
-                : ActivationKey[k];
+        const labelFor = (k: ActivationKey): string => {
+            switch (k) {
+                case ActivationKey.RIGHT_BUTTON:
+                    return _('Right Mouse Button');
+                case ActivationKey.SIDE_BUTTON:
+                    return _('Mouse 4 (side button)');
+                default:
+                    return ActivationKey[k];
+            }
+        };
         activationKeys.forEach((k) => options.append(labelFor(k)));
         options.append(_('(None)'));
         const dropdown = new Gtk.DropDown({
